@@ -55,7 +55,7 @@ class Paper:
         data = {}
         
         # Extract the paper ID from the file name.
-        data['paperID'] = int(self.datasetFile.split('.')[0].split('/')[-1])
+        data['paperID'] = int(self.datasetFile.split('.json')[0].split('/')[-1])
         # The extract is directly accesible through the file.
         data['abstract'] = self._file.get('abstract', '')
         

@@ -2,14 +2,14 @@
 ## Link :https://docs.vllm.ai/en/latest/getting_started/quickstart.html
 
 from pandas import DataFrame
-from vllm import LLM, SamplingParams
-
 from alive_progress import alive_bar
-from config import Model
+from config import Model, directories as Paths
+import os
 
 def instantiate_model(temperature=0.4, top_p=0.95):
+    from vllm import LLM, SamplingParams
     samplingParams = SamplingParams(temperature=temperature, top_p=top_p)
-    model = LLM(model=Model.name, sampling_params=samplingParams)
+    model = LLM(model=Model.name, dtype = 'float16', quantization='gptq')
     return model, samplingParams
 
 def getGoldQnA(batch, model, samplingParams):
@@ -35,7 +35,35 @@ def getQnAForData( dataset : DataFrame, batchSize : int = 1) -> list:
             bar.update()
     return listOfQnA
 
+def useLangchainOllama(papers : DataFrame) -> None:
+    """
+    Saves the QnA in the _papers_ directory, by the model.
+    All progress is saved, so can cacncel the operation
+    """
+    from langchain_community.llms import Ollama
+    from src.postProcessing import extractQAPairs
+    import pickle as Pickle
+
+    model = Ollama(model=Model.name)
+    
+    with alive_bar(len(papers), length = 20, title = "Generating QnA") as bar:
+        for _, paperData in papers.iterrows():
+            goldQnA = None
+            try :
+                if os.path.exists(f"{Paths.limitGenData}/{paperData['paperID']}.pkl"):            
+                    bar()
+                    continue
+                prompt = f"{Model.promptPrefix} {paperData['relevantContent']} {Model.promptInfix} {paperData['title']} {Model.promptSuffix}"
+                modelOutput = model(prompt)
+                goldQnA = extractQAPairs(modelOutput)
+            except Exception as e:
+                print(e)
+            finally :
+                if goldQnA is not None:
+                    with open(f'{Paths.papers}/{paperData["paperID"]}.pkl', 'wb') as f:
+                        Pickle.dump(goldQnA, f)
+                
 if __name__ == '__main__':
     from utils import createRawDataset
     dataset = createRawDataset()
-    listOfQnA = getQnAForData(dataset)
+    useLangchainOllama(dataset)

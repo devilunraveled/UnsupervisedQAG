@@ -1,5 +1,13 @@
 import os
 
+class Model :
+    name = 'google/flan-t5-large'
+    tokenizer = 'google/flan-t5-large'
+
+    #### Prompt Configuration ####
+    promptPrefix = 'Following is the methodology section content from a academic paper from which you have to generate Question-Answer pairs : '
+    promptInfix  = '\n This is an overall summary of the paper : '
+    promptSuffix = '\n Generate as many Question-Answer pairs as necessary to capture the information in the methodology section. Output them as a python List of pairs (Question,Answer). Output just the list, nothing else.'
 
 
 class directories:

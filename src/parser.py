@@ -13,7 +13,7 @@ Key observations during the parsing :
 import os
 import pickle
 
-from Config import Constants, Data
+from .config import Constants
 
 def getRelevantSections(paperData           : list,
                         startKeyWords       : list = Constants.sectionStartKeywords, 
@@ -59,20 +59,3 @@ def getRelevantSections(paperData           : list,
             return [ defaultSection ]
 
     return [ paperData[i] for i in range(startSection, endSection) ]
-
-
-def runRawCheck() -> None:
-    datasetDirectory = Data.limitGenData
-    
-    paperDataDir = os.listdir(datasetDirectory)[0]
-
-    for paperPath in os.listdir(os.path.join(datasetDirectory, paperDataDir)):
-        with open(os.path.join(datasetDirectory, paperDataDir, paperPath), "rb") as file:
-            paperData = pickle.load(file)
-            paperData = list(paperData['sections'].keys())
-        sections = getRelevantSections(paperData=paperData)
-        if (sections):
-            print(f"Start : {sections[0]}, End : {sections[-1]}")
-            print("=====================================")
-if __name__ == "__main__":
-    runRawCheck()

@@ -1,9 +1,9 @@
 import re
 
-from parser import getRelevantSections
+from .parser import getRelevantSections
 from .utils import readJsonFile
 from .config import Constants
-class Preprocessor:
+class Paper:
     """
     The preprocessor class is used to preprocess the dataset.
     It demands the input as the json file of the paper.
@@ -55,7 +55,7 @@ class Preprocessor:
         data = {}
         
         # Extract the paper ID from the file name.
-        data['paperID'] = int(self.datasetFile.split('.')[0])
+        data['paperID'] = int(self.datasetFile.split('.')[0].split('/')[-1])
         # The extract is directly accesible through the file.
         data['abstract'] = self._file.get('abstract', '')
         

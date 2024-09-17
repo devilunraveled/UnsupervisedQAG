@@ -1,8 +1,7 @@
 import os
 
 class Model :
-    name = 'google/flan-t5-large'
-    tokenizer = 'google/flan-t5-large'
+    name = 'meta-llama/Meta-Llama-3.1-8B'
 
     #### Prompt Configuration ####
     promptPrefix = 'Following is the methodology section content from a academic paper from which you have to generate Question-Answer pairs : '

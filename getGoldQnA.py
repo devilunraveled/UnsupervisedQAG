@@ -1,29 +1,41 @@
-from typing import List
-from langchain_huggingface import HuggingFacePipeline
+## Implement a vLLM pipeline to get batched inferencing.
+## Link :https://docs.vllm.ai/en/latest/getting_started/quickstart.html
+
+from pandas import DataFrame
+from vllm import LLM, SamplingParams
 
 from alive_progress import alive_bar
-
 from config import Model
-from pandas import DataFrame
 
-def getPipeline():
-    return HuggingFacePipeline.from_model_id(model_id = Model.name, task ="text2text-generation",
-                                             device = -1)
+def instantiate_model(temperature=0.4, top_p=0.95):
+    samplingParams = SamplingParams(temperature=temperature, top_p=top_p)
+    model = LLM(model=Model.name, sampling_params=samplingParams)
+    return model, samplingParams
 
-def paperData( dataset : DataFrame) -> List[str]:
-    prompts : List[str] = []
-    for paper in dataset.iterrows():
-        prompts.append(f"{Model.promptPrefix}{paper[1]['relevantContent']}{Model.promptInfix}{paper[1]['abstract']}{Model.promptSuffix}")
-    return prompts
+def getGoldQnA(batch, model, samplingParams):
+    return model.generate(batch, samplingParams)
 
-def getResponseForDataset( dataset : DataFrame ):
-    pipeline = getPipeline()
-    with alive_bar(len(dataset), force_tty = True) as bar:
-        for prompt in paperData(dataset):
-            print(pipeline(prompt))
-            bar()
+def getQnAForData( dataset : DataFrame, batchSize : int = 1) -> list:
+    """
+    Returns the QnA generated using the model in the dataset.
+    The batchSize argument can be passed to see the model inference latency.
+    """
+    model, samplingParams = instantiate_model()
+    
+    def batched(data, batchSize = 1):
+        for i in range(0, len(data), batchSize):
+            yield data[i:i+batchSize]
 
-if __name__ == "__main__":
+    listOfQnA = []
+    totalBatches = (len(dataset['relevantContent']) // batchSize) + (1 if len(dataset['relevantContent']) % batchSize > 0 else 0)
+    with alive_bar(totalBatches, length = 20, title = "Generating QnA") as bar:
+        for batch in batched(dataset['relevantContent']):
+            listOfQnA.append(getGoldQnA(batch, model, samplingParams))
+            print(listOfQnA[-1])
+            bar.update()
+    return listOfQnA
+
+if __name__ == '__main__':
     from utils import createRawDataset
     dataset = createRawDataset()
-    getResponseForDataset(dataset)
+    listOfQnA = getQnAForData(dataset)

@@ -38,7 +38,7 @@ def getQnAForData( dataset : DataFrame, batchSize : int = 1) -> list:
 def useLangchainOllama(papers : DataFrame) -> None:
     """
     Saves the QnA in the _papers_ directory, by the model.
-    All progress is saved, so can cacncel the operation
+    All progress is saved, so can cancel the operation
     """
     from langchain_community.llms import Ollama
     from src.postProcessing import extractQAPairs
@@ -47,21 +47,44 @@ def useLangchainOllama(papers : DataFrame) -> None:
     model = Ollama(model=Model.name)
     
     with alive_bar(len(papers), length = 20, title = "Generating QnA") as bar:
+        previouslyDone = 0
+        doneNow = 0
+        failedNow = 0
         for _, paperData in papers.iterrows():
             goldQnA = None
             try :
-                if os.path.exists(f"{Paths.limitGenData}/{paperData['paperID']}.pkl"):            
-                    bar()
-                    continue
+                # Check if the paper with this paperID has been prcoessed.
+                if os.path.exists(f"{Paths.papers}/{paperData['paperID']}.pkl"):            
+                    with open(f'{Paths.papers}/{paperData["paperID"]}.pkl', 'rb') as f:
+                        goldQnA = Pickle.load(f)
+                        if type(goldQnA) is list and len(goldQnA) > 0:
+                            goldQnA = None # Prevent the file being re-written in the finally block.
+                            previouslyDone += 1
+                            continue # If paper exists and is readable, nothing needs to be done.
+                
+                # If the paper has not been processed, then process it.
                 prompt = f"{Model.promptPrefix} {paperData['relevantContent']} {Model.promptInfix} {paperData['title']} {Model.promptSuffix}"
-                modelOutput = model(prompt)
+                modelOutput = model.invoke(prompt)
+
+                # Now that we have the model's output, we will extract the QA Pairs from it.
                 goldQnA = extractQAPairs(modelOutput)
+
+                # If for some reason the QA pairs were not extracted, then raise an exception,
+                # in this case we don't store the paper.
+                if goldQnA is None or len(goldQnA) == 0:
+                    raise Exception("QnA not found.")
             except Exception as e:
+                failedNow += 1
                 print(e)
             finally :
-                if goldQnA is not None:
+                # If the paper is valid, we will store it.
+                if goldQnA is not None and len(goldQnA) > 0:
                     with open(f'{Paths.papers}/{paperData["paperID"]}.pkl', 'wb') as f:
                         Pickle.dump(goldQnA, f)
+                    
+                    doneNow += 1
+                bar.text(f"Done : {doneNow} | Failed : {failedNow} | Previously Done : {previouslyDone}")
+                bar()
                 
 if __name__ == '__main__':
     from utils import createRawDataset

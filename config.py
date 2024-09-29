@@ -27,7 +27,16 @@ class Model :
 
 class directories:
     currDirectory = os.path.dirname(__file__)
+    data = os.path.join(currDirectory, "data")
     datasets = os.path.join(currDirectory, "datasets")
     papers = os.path.join(currDirectory, "papers")
-
     limitGenData = os.path.join(datasets, "limitGenDataset")
+
+class EncoderConfig :
+    Name : str = "bert-base-uncased"
+
+class ReconstructionDecoderConfig :
+    Name : str = "gpt2"
+
+class QAGenerationDecoderConfig :
+    Name : str = "gpt2"

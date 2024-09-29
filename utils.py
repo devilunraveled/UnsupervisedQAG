@@ -18,6 +18,8 @@ def createRawDataset() -> DataFrame:
 
     # Iterate through the papers.
     for paperPath in os.listdir(Paths.papers):
+        if not paperPath.endswith('.json'):
+            continue
         try :
             paper = Paper(f"{Paths.papers}/{paperPath}")
             paperData = paper.getPaperData()

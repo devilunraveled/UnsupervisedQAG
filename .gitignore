@@ -1,3 +1,7 @@
 datasets/
 papers/
 __pycache__/
+ckpts/
+env/
+out/
+uqag_pt/

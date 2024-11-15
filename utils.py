@@ -53,15 +53,32 @@ def separateOutPaper(paperListFile : str, offset : int ) -> int:
 
     return _paperCount
 
+def inference(model, input):
+    model.eval()
+    _, _, qa = model(input)
+    # Use the tokenizer to get back the output.
+    tokenizer = model.tokenizer
+    return tokenizer.decode(qa[0], skip_special_tokens=True)
+
+def formatGoldQnA( qnA : str ):
+    "Evaluates the qnA as a list of dicts."
+    from ast import literal_eval
+    return literal_eval(qnA)
 
 if __name__ == '__main__' :
-    os.makedirs(Paths.papers, exist_ok=True)
+    # os.makedirs(Paths.papers, exist_ok=True)
 
-    paperListFileDir = Paths.limitGenData
-    
-    numPapers = 0 # Setting the number of papers yet done to 0.
-    for paperListFile in os.listdir(paperListFileDir):
-        numExtractedPapers = separateOutPaper(os.path.join(paperListFileDir, paperListFile), numPapers)
-        numPapers += numExtractedPapers
-    
-    print(f"Extracted {numPapers} papers.")
+    # paperListFileDir = Paths.limitGenData
+    # 
+    # numPapers = 0 # Setting the number of papers yet done to 0.
+    # for paperListFile in os.listdir(paperListFileDir):
+    #     numExtractedPapers = separateOutPaper(os.path.join(paperListFileDir, paperListFile), numPapers)
+    #     numPapers += numExtractedPapers
+    # 
+    # print(f"Extracted {numPapers} papers.")
+    import pandas as pd
+    testData = pd.read_csv(f"{Paths.data}/test.csv")
+
+    print(testData['gold_QnA'][0])
+    print(formatGoldQnA(testData['gold_QnA'][0]))
+

@@ -1,15 +1,20 @@
 {
-    "train_batch_size": 16,
-    "train_micro_batch_size_per_gpu": 2,
+    "train_batch_size": 8,
+    "train_micro_batch_size_per_gpu": 1,
     "gradient_accumulation_steps": 2,
     "zero_optimization": {
-        "stage": 2,
+        "stage": 3,
         "offload_optimizer": {
-            "device": "cpu"
+            "device": "cpu",
+            "pin_memory": true
         },
         "offload_param": {
-            "device": "cpu"
+            "device": "cpu",
+            "pin_memory": true
         }
+    },
+    "fp16": {
+        "enabled": true
     },
     "gradient_clipping": 1.0
 }

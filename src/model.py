@@ -1,13 +1,12 @@
 """
 The model architecture for the Encoder-2*Decoder model with QLoRA.
 """
+import torch
 from torch import nn as NeuralNetwork, softmax as Softmax, save as Save, load as Load
-from transformers import AutoModelForSeq2SeqLM, AutoTokenizer, BitsAndBytesConfig
-from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training, save_peft_model, PeftModel
+from transformers import AutoModel, AutoModelForSeq2SeqLM, AutoTokenizer, BitsAndBytesConfig, AutoConfig
+from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training, PeftModel
 from copy import deepcopy
-from safetensors.torch import load_file
-from transformers.modeling_utils import load_state_dict
-
+import os
 
 class Model(NeuralNetwork.Module):
     def __init__(self, modelName, inference_mode : bool = False, useLORA : bool = False, bitsAndBytesConfig = None):
@@ -20,13 +19,25 @@ class Model(NeuralNetwork.Module):
         
         if bitsAndBytesConfig is not None:
             self.quantizationConfig = BitsAndBytesConfig(**bitsAndBytesConfig)
-        else :
-            self.quantizationConfig = BitsAndBytesConfig()
         
         # Load encoder and decoders
-        self.encoder, self.reconstructionDecoder, self.qAGenerationDecoder, self.lmHead_reconstruction, self.lmHead_qAGeneration = self.getEncoderDecoders(modelName)
-        self.model_dimension = self.encoder.config.d_model
+        self.model = self.getEncoderDecoders(modelName)
+        self.model_dimension = self.model.encoder.config.d_model
         
+        if inference_mode:
+            self.model.encoder.eval()
+            self.model.reconstructionDecoder.eval()
+            self.model.qAGenerationDecoder.eval()
+            self.model.lmHead_reconstruction.eval()
+            self.model.lmHead_qAGeneration.eval()
+            return
+        else :
+            self.model.encoder.train()
+            self.model.reconstructionDecoder.train()
+            self.model.qAGenerationDecoder.train()
+            self.model.lmHead_reconstruction.train()
+            self.model.lmHead_qAGeneration.train()
+
         # # Print names of encoder modules
         # print("Encoder modules:")
         # for name, _ in self.encoder.named_modules():
@@ -42,55 +53,67 @@ class Model(NeuralNetwork.Module):
         # for name, _ in self.qAGenerationDecoder.named_modules():
         #     print(name)
         
-        if inference_mode:
-            return
-
         totalTrainableParams = sum(p.numel() for p in self.parameters() if p.requires_grad)
         print(f"Total number of trainable parameters: {totalTrainableParams}")
-
+        
+        totalModelParamMemory = sum(p.numel() * p.element_size() for p in self.parameters())
+        
         # Prepare for k-bit training (e.g., 4-bit)
-        # self.encoder = prepare_model_for_kbit_training(self.encoder)
-        # self.reconstructionDecoder = prepare_model_for_kbit_training(self.reconstructionDecoder)
-        # self.qAGenerationDecoder = prepare_model_for_kbit_training(self.qAGenerationDecoder)
+        self.model.encoder = prepare_model_for_kbit_training(self.model.encoder)
+        self.model.reconstructionDecoder = prepare_model_for_kbit_training(self.model.reconstructionDecoder)
+        self.model.qAGenerationDecoder = prepare_model_for_kbit_training(self.model.qAGenerationDecoder)
+        self.model.lmHead_reconstruction = prepare_model_for_kbit_training(self.model.lmHead_reconstruction)
+        self.model.lmHead_qAGeneration = prepare_model_for_kbit_training(self.model.lmHead_qAGeneration)
+        
+        totalModelParamMemory = sum(p.numel() * p.element_size() for p in self.parameters())
         
 
         # Configure LoRA for the three modules
         if useLORA:
-            self.encoder = self.configure_lora(self.encoder, encoder = True)
-            self.reconstructionDecoder = self.configure_lora(self.reconstructionDecoder)
-            self.qAGenerationDecoder = self.configure_lora(self.qAGenerationDecoder)
-            
+            self.model = self.configure_lora(self.model)
+            for param in self.model.lmHead_reconstruction.parameters():
+                param.requires_grad = True
+            for param in self.model.lmHead_qAGeneration.parameters():
+                param.requires_grad = True
             loRATrainableParams = sum(p.numel() for p in self.parameters() if p.requires_grad)
             print(f"Total number of trainable parameters with LoRA: {loRATrainableParams}")
-
             print(f"Percentage Reduction in Training Params : {(1 - loRATrainableParams/totalTrainableParams) * 100} %")
+            
 
     def getEncoderDecoders(self, modelName):
-        model = AutoModelForSeq2SeqLM.from_pretrained(modelName).model
-        encoder = model.encoder
+        if hasattr(AutoConfig, 'quantizationConfig'):
+            self.model = AutoModelForSeq2SeqLM.from_pretrained(modelName, quantization_config = self.quantizationConfig)
+        else :
+            self.model = AutoModelForSeq2SeqLM.from_pretrained(modelName)
+
         
-        reconstructionDecoder = deepcopy(model.decoder)
-        qAGenerationDecoder = deepcopy(model.decoder)
+        self.model.reconstructionDecoder = deepcopy(self.model.decoder)
+        self.model.qAGenerationDecoder = deepcopy(self.model.decoder)
+        del self.model.decoder
         
         # Randomize the lm_head
-        model.lm_head = NeuralNetwork.Linear(model.config.d_model, model.config.vocab_size)
+        # model.lm_head = NeuralNetwork.Linear(model.config.d_model, model.config.vocab_size)
+        
+        if not hasattr(self.model, 'lm_head'):
+            print(f"No lm_head found in {modelName}. Training the model from scratch.")
+            self.model.lm_head = NeuralNetwork.Linear(self.model.config.d_model, self.model.config.vocab_size)
 
-        lmHead_reconstruction = deepcopy(model.lm_head)
-        lmHead_qAGeneration = deepcopy(model.lm_head)
-
-        return encoder, reconstructionDecoder, qAGenerationDecoder, lmHead_reconstruction, lmHead_qAGeneration
+        self.model.lmHead_reconstruction = deepcopy(self.model.lm_head)
+        self.model.lmHead_qAGeneration = deepcopy(self.model.lm_head)
+        del self.model.lm_head
+        
+        return self.model
     
-    def configure_lora(self, module, encoder : bool = False):
+    def configure_lora(self, module):
         taskType = 'Seq2SeqLM'
         
-        targetModules = [ moduleName for moduleName, _ in module.named_modules() if moduleName != '' and moduleName.endswith('.k') or moduleName.endswith('.q') ]
+        # targetModules = [ moduleName for moduleName, _ in module.named_modules() if moduleName != '' and moduleName.endswith('.k') or moduleName.endswith('.q') ]
 
         peft_config = LoraConfig(
-            r=16,
-            lora_alpha=32,
-            lora_dropout=0.05,
+            r=8,
+            lora_alpha=16,
             bias="none",
-            # target_modules=targetModules,
+            lora_dropout=0.01,
             task_type=taskType,
         )
         return get_peft_model(module, peft_config)
@@ -99,45 +122,101 @@ class Model(NeuralNetwork.Module):
         return AutoTokenizer.from_pretrained(self.modelName, clean_up_tokenization_spaces = True)
 
     def forward(self, input_ids, attention_mask, qna_labels, reconstruction_labels):
-        encoderOutput = self.encoder(input_ids = input_ids, attention_mask = attention_mask)
+        encoderOutput = self.model.encoder(input_ids = input_ids, attention_mask = attention_mask)
         lastHiddenStates = encoderOutput.last_hidden_state
         
         # Forward through both decoders
-        qAGenerationDecoderOutput = self.qAGenerationDecoder(
+        qAGenerationDecoderOutput = self.model.qAGenerationDecoder(
             input_ids = qna_labels,
             encoder_hidden_states = lastHiddenStates,
             encoder_attention_mask = attention_mask
         )
         
         # qAOutput = Softmax(self.lmHead_qAGeneration(qAGenerationDecoderOutput.last_hidden_state), dim = -1)
-        qnaLMHeadOutput = self.lmHead_qAGeneration(qAGenerationDecoderOutput.last_hidden_state)
+        qnaLMHeadOutput = self.model.lmHead_qAGeneration(qAGenerationDecoderOutput.last_hidden_state)
 
-        reconstructionDecoderOutput = self.reconstructionDecoder(
+        reconstructionDecoderOutput = self.model.reconstructionDecoder(
             input_ids = reconstruction_labels,
             encoder_hidden_states = lastHiddenStates,
             encoder_attention_mask = attention_mask
         )
 
         # reconstructionOutput = Softmax(self.lmHead_reconstruction(reconstructionDecoderOutput.last_hidden_state), dim = -1)
-        reconstructionLMHeadOutput = self.lmHead_reconstruction(reconstructionDecoderOutput.last_hidden_state)
+        reconstructionLMHeadOutput = self.model.lmHead_reconstruction(reconstructionDecoderOutput.last_hidden_state)
         return encoderOutput, reconstructionLMHeadOutput, qnaLMHeadOutput
     
-    def load_model(self, path):
-        self.encoder = PeftModel.from_pretrained(self.encoder, path)
-        self.reconstructionDecoder = PeftModel.from_pretrained(self.reconstructionDecoder, path)
-        self.qAGenerationDecoder = PeftModel.from_pretrained(self.qAGenerationDecoder, path)
+    def getLogits(self, input_ids, attention_mask, decoder_input_ids):
+        """
+        Computes the logits for the next token in the sequence.
 
-        self.lmHead_reconstruction.load_state_dict(Load(f"{path}/lmHead_reconstruction", map_location="cuda"))
-        self.lmHead_qAGeneration.load_state_dict(Load(f"{path}/lmHead_qAGeneration", map_location="cuda"))
+        Args:
+            input_ids (torch.Tensor): Input IDs for the encoder (batch_size, seq_len).
+            attention_mask (torch.Tensor): Attention mask for the encoder (batch_size, seq_len).
+            decoder_input_ids (torch.Tensor): Current decoder input IDs (batch_size, decoder_seq_len).
+
+        Returns:
+            torch.Tensor: Logits for the next token (batch_size, vocab_size).
+        """
+        # Step 1: Encode the input
+        encoder_output = self.model.encoder(input_ids=input_ids, attention_mask=attention_mask)
+        last_hidden_states = encoder_output.last_hidden_state
+
+        # Step 2: Pass the decoder input to the QnA decoder
+        decoder_output = self.model.qAGenerationDecoder(
+            input_ids=decoder_input_ids,
+            encoder_hidden_states=last_hidden_states,
+            encoder_attention_mask=attention_mask
+        )
+
+        # Step 3: Compute the logits for the next token
+        logits = self.model.lmHead_qAGeneration(decoder_output.last_hidden_state[:, -1, :])  # Only take the last token's logits
+        return logits
     
-    def save_model(self, path):
-        import os
-        if not os.path.exists(path):
-            os.makedirs(path)
+
+    def inference(self, input_ids, attention_mask, max_length, sampler, *args, **kwargs):
+        """
+        Generates a sequence of tokens using the QnA decoder.
+        Args:
+            input_ids (torch.Tensor): Input IDs for the encoder (batch_size, seq_len).
+            attention_mask (torch.Tensor): Attention mask for the encoder (batch_size, seq_len).
+            max_length (int): Maximum length of the generated sequence.
+            eos_token_id (int): Token ID representing the end of sequence.
+        Returns:
+            torch.Tensor: Generated sequence of token IDs (batch_size, generated_seq_len).
+        """
+        # Step 1: Initialize decoder input with the start token
+        start_token_id = self.tokenizer.bos_token_id or self.tokenizer.cls_token_id or self.tokenizer.pad_token_id
+        eos_token_id = self.tokenizer.eos_token_id
+        decoder_input_ids = torch.tensor([[start_token_id]]).to(input_ids.device)
+
+        # Step 2: Iteratively generate tokens
+        for _ in range(max_length):
+            # Get the logits for the next token
+            logits = self.getLogits(input_ids, attention_mask, decoder_input_ids)
+
+            # Step 3: Select the token with the highest probability (greedy decoding)
+            probabilityDistribution = torch.softmax(logits, dim=-1)
+            next_token_id, probability = sampler(probabilityDistribution, *args, **kwargs)
+            next_token_id = next_token_id.unsqueeze(0)
+
+            # Step 4: Append the generated token to the decoder input
+            decoder_input_ids = torch.cat([decoder_input_ids, next_token_id], dim=1)
+
+            # Step 5: Check if the EOS token has been generated
+            if eos_token_id is not None and next_token_id.item() == eos_token_id:
+                break
+
+            yield decoder_input_ids
         
-        save_peft_model(self.encoder, f"{path}/encoder")
-        save_peft_model(self.reconstructionDecoder, f"{path}/reconstructionDecoder")
-        save_peft_model(self.qAGenerationDecoder, f"{path}/qAGenerationDecoder")
-            
-        Save(self.lmHead_reconstruction.state_dict(), f"{path}/lmHead_reconstruction")
-        Save(self.lmHead_qAGeneration.state_dict(), f"{path}/lmHead_qAGeneration")
+        return decoder_input_ids
+
+    def load_model(self, path):
+        self.model = PeftModel.from_pretrained(self.model, os.path.abspath(path))
+
+    def save_model(self, path):
+        if not os.path.exists(path):
+            os.makedirs(path, exist_ok=True)
+        
+        print(f"Saving model to {path}")
+        self.model.save_pretrained(path, save_adapter=True, save_config=True)
+        print("Model saved at ", path)

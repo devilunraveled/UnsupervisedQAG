@@ -1,10 +1,56 @@
 import os
 
 class QnAModel : 
-    name = "facebook/bart-large"
+    name = "google/flan-t5-base"
     
     outputDirectory = '/scratch/jai.bhatnagar/hardik_uqag/out/'
     loggingDirectory = '/scratch/jai.bhatnagar/hardik_uqag/logs'
+
+SQUADTrainingConfig = {
+    'output_dir' : QnAModel.outputDirectory,
+    'save_steps' : 10000,
+    'save_total_limit' : 1,
+    'num_train_epochs' : 2,
+    'per_device_train_batch_size' : 1,
+    'gradient_accumulation_steps' : 2,
+    'logging_dir' : QnAModel.loggingDirectory,
+    'logging_steps' : 50,
+    'learning_rate' : 2e-5,
+    'warmup_steps' : 50,
+    'bf16' : True,
+}
+
+RESEARCHTrainingConfig = {
+    'output_dir' : QnAModel.outputDirectory,
+    'save_steps' : 10000,
+    'save_total_limit' : 1,
+    'num_train_epochs' : 1,
+    'per_device_train_batch_size' : 1,
+    'gradient_accumulation_steps' : 2,
+    'logging_dir' : QnAModel.loggingDirectory,
+    'logging_steps' : 50,
+    'learning_rate' : 1e-5,
+    'warmup_steps' : 50,
+    'bf16' : True,
+}
+
+
+HyperParams : dict = {
+    'research_fine_tine_weights' : (1, 0),
+    'squad_fine_tine_weights' : (1, 0),
+}
+
+QuantizationConfig : dict = {
+    'load_in_8bit' : True,
+}
+
+LORAConfig : dict = {
+    'r' : 8,
+    'lora_alpha' : 16,
+    'lora_dropout' : 0.05,
+    'task_type' : 'Seq2SeqLM',
+    'bias' : 'none'
+}
 
 class Model :
     name = 'llama3.1:8b'
@@ -39,31 +85,12 @@ class directories:
 
 
 class Pipeline :
-    promptPrefix = 'The following is the methodology section content from a academic paper from which you have to generate Question-Answer pairs : '
+    promptPrefix = 'Given the following section of a research paper, convert it into meaningful Question-Answer pairs.'
     promptInfix  = '\n This is an overall summary of the paper : '
-    promptSuffix = """Given the above paragraph from a research paper, generate question answer pairs, that capture the information content in the paragraph, output just a json object of Questions and Answers. The structure should be as shown: 
-    [
-        {
-            "question" : "Question 1",
-            "answer" : "Answer 1"
-        },
-        {
-            "question" : "Question 2",
-            "answer" : "Answer 2"
-        },
-        {
-            "question" : "Question 3",
-            "answer" : "Answer 3"
-        }
-    ]
-    You can incorporate as many questions as you deem necessary, but they should be distinct, you are to return nothing other than this json object. If there is any reason due to which you cannot generate the questions, return an empty list. Remember, your output must always be a list of json objects, no verbosity.
-        """
-
-class EncoderConfig :
-    Name : str = "bert-base-uncased"
-
-class ReconstructionDecoderConfig :
-    Name : str = "gpt2"
-
-class QAGenerationDecoderConfig :
-    Name : str = "gpt2"
+    promptSuffix = """Output as follows : 
+        Q : <Question1>
+        A : <Answer1>
+        Q : <Question2>
+        A : <Answer2> 
+        and so on
+    """

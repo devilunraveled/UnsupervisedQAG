@@ -2,9 +2,10 @@
 from src.trainer import CustomTrainer
 from src.model import Model
 import pandas as pd
-from config import QnAModel, directories as Paths
+from config import QnAModel, RESEARCHTrainingConfig, SQUADTrainingConfig, directories as Paths, HyperParams, QuantizationConfig
 from torch.utils.data import Dataset
 from utils import formatGoldQnA as getQuestionsAsList
+# from accelerate import Accelerator
 
 import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3"
@@ -46,50 +47,44 @@ def train(model, trainData, evalData, trainingArguments, weights = (0.5, 0.5)) :
     trainer.train()
 
 if __name__ == "__main__" :
+    # accelerator = Accelerator()
     squadTrainData = pd.read_csv(f"{Paths.data}/squad.csv")
     trainData = pd.read_csv(f"{Paths.data}/train.csv")
     testData = pd.read_csv(f"{Paths.data}/test.csv")
     
-    model = Model(modelName = QnAModel.name, useLORA=True)
-    tokenizer = model.tokenizer
+    squadTrainData = squadTrainData.reset_index(drop=True)
+    trainData = trainData.reset_index(drop=True)
+    testData = testData.reset_index(drop=True)
     
+    squadTrainData = squadTrainData.drop(columns=["Unnamed: 0"], errors='ignore')
+    trainData = trainData.drop(columns=["Unnamed: 0"], errors='ignore')
+    testData = testData.drop(columns=["Unnamed: 0"], errors='ignore')
+    
+    totalDataset = pd.concat([trainData, squadTrainData], axis = 0, ignore_index = True)
+    print(f"Total dataset size : {len(totalDataset)}")
+    
+    model = Model(modelName = QnAModel.name, useLORA=True, bitsAndBytesConfig = QuantizationConfig)
+    tokenizer = model.tokenizer 
+
     squadTrainDataset = CustomDataset(squadTrainData, tokenizer)
     trainDataset = CustomDataset(trainData, tokenizer)
     testDataset = CustomDataset(testData, tokenizer)
     
-    training_arguments_squad = {
-        'output_dir': QnAModel.outputDirectory,
-        'save_steps': 5000,
-        'save_total_limit': 5,
-        'num_train_epochs': 30,
-        'per_device_train_batch_size': 2,
-        'gradient_accumulation_steps': 2,
-        'eval_strategy': 'no',
-        'logging_dir': QnAModel.loggingDirectory,
-        'logging_steps': 100,
-        'learning_rate': 2e-5,
-        'warmup_steps': 50,
-        'deepspeed' : 'ds_config.json',
-    }
-    
-    # train(model, squadTrainDataset, testDataset, trainingArguments = training_arguments_squad, weights = (0.3,0.7))
-    # print("Model fine-tuned on Squad Dataset, saving model")
-    # model.save_model('/scratch/jai.bhatnagar/hardik_uqag/bart_large_ft_squad_30/')
+    squad_training_arguments = {**SQUADTrainingConfig}
+    research_training_arguments = {**RESEARCHTrainingConfig}
 
-    training_arguments = {
-        'output_dir': QnAModel.outputDirectory,
-        'num_train_epochs': 10,
-        'save_steps': 5000,
-        'save_total_limit': 5,
-        'per_device_train_batch_size': 2,
-        'gradient_accumulation_steps': 2,
-        'eval_strategy': 'no',
-        'logging_dir': QnAModel.loggingDirectory,
-        'logging_steps': 50,
-        'learning_rate': 1e-4,
-        'deepspeed' : 'ds_config.json',
-    }
-    
-    train(model, trainDataset, testDataset, trainingArguments = training_arguments, weights = (0.3,0.7))
-    print("Training finished, saving model")
-    model.save_model('/scratch/jai.bhatnagar/hardik_uqag/bart_large_ft_squad_30_ft_arxiv_10/')
+    modelSize = 'large' if 'large' in QnAModel.name else 'base'
+
+    SQUADTrainer = CustomTrainer(model, squadTrainDataset, testDataset, squad_training_arguments, weights = HyperParams['squad_fine_tine_weights'])
+    try :
+        SQUADTrainer.train()
+        print("Training finished on SQUAD, saving model")
+    finally :   
+        model.save_model(f'/scratch/jai.bhatnagar/hardik_uqag/flan-t5-{modelSize}-squad/')
+
+    RESEARCHTrainer = CustomTrainer(model, trainDataset, testDataset, research_training_arguments, weights = HyperParams['research_fine_tine_weights'])
+    try :
+        RESEARCHTrainer.train()
+        print("Training finished on RESEARCH Dataset, saving model")
+    finally :   
+        model.save_model(f'/scratch/jai.bhatnagar/hardik_uqag/flan-t5-{modelSize}-squad-research-{HyperParams["research_fine_tine_weights"][0]*10}')

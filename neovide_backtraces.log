@@ -1,4 +1,4 @@
-2024-11-13 19:33:51 - Neovide panicked with the message 'called `Result::unwrap()` on an `Err` value: Connection(IoError(Custom { kind: Other, error: UnknownError }))'. (File: /build/.cargo/registry/src/index.crates.io-6f17d22bba15001f/winit-0.29.15/src/platform_impl/linux/x11/window.rs; Line: 1316, Column: 14)
+2024-11-23 10:18:20 - Neovide panicked with the message 'called `Result::unwrap()` on an `Err` value: Connection(IoError(Custom { kind: Other, error: UnknownError }))'. (File: /build/.cargo/registry/src/index.crates.io-6f17d22bba15001f/winit-0.29.15/src/platform_impl/linux/x11/window.rs; Line: 1316, Column: 14)
    0: <unknown>
    1: <unknown>
    2: <unknown>

@@ -3,8 +3,9 @@
 #SBATCH --gres=gpu:4
 #SBATCH --mem-per-cpu=2048
 #SBATCH --time=4-00:00:00
-#SBATCH --nodelist=gnode091
+#SBATCH --nodelist=gnode085
 #SBATCH --mail-type=END
+#SBATCH --output=ada_%j.out
 
 ## load the necessary modules
 module load u18/python/3.11.2
@@ -21,10 +22,10 @@ echo "GCC version: $(gcc --version)"
 # rm -rf env
 
 ## create the virtual environment
-# python3 -m venv env
+# python3 -m venv env_uqag
 
 ## Create and acticate venv to run the code in.
-source env/bin/activate
+source env_uqag/bin/activate
 echo "Virtual environment activated: $(which python)"
 
 ## Upgrade pip to the latest version.
@@ -35,7 +36,7 @@ echo "Virtual environment activated: $(which python)"
 # accelerate config
 
 export CUDA_VISIBLE_DEVICES=0,1,2,3
-# export CUDA_LAUNCH_BLOCKING=1
+export CUDA_LAUNCH_BLOCKING=1
 
 echo "Running on GPUs: $CUDA_VISIBLE_DEVICES"
 ## Running the training.
